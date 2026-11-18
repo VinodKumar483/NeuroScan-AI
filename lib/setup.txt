@@ -1,0 +1,187 @@
+
+# ============================================
+# NeuroScan AI - MASTER STARTUP CELL
+# Expo Demo | Google Colab Free GPU
+# ============================================
+
+import os
+import sys
+import time
+import yaml
+import threading
+import subprocess
+import requests
+import importlib.util
+from pathlib import Path
+
+print("Starting NeuroScan AI...")
+
+# 1. Mount Google Drive
+from google.colab import drive, userdata
+drive.mount("/content/drive", force_remount=False)
+
+# 2. Project paths
+PROJECT_DIR = "/content/drive/MyDrive/NeuroScanAI"
+REPO_DIR = os.path.join(PROJECT_DIR, "brain_tumor_model")
+APP_PATH = os.path.join(PROJECT_DIR, "app.py")
+
+assert os.path.isdir(REPO_DIR), f"Model folder missing: {REPO_DIR}"
+assert os.path.isfile(APP_PATH), f"API file missing: {APP_PATH}"
+
+# 3. Install only API/tunnel dependencies
+%pip -q install flask flask-cors pyngrok pyyaml requests
+
+# 4. Import model module
+if REPO_DIR not in sys.path:
+    sys.path.insert(0, REPO_DIR)
+
+import brisc_segformer_convnext as brisc
+
+print("Model module imported.")
+
+# 5. Set correct checkpoint paths
+brisc.classifier_checkpoint_path = lambda mode: os.path.join(
+    REPO_DIR, f"cls_{mode}_best.pt"
+)
+brisc.segmenter_checkpoint_path = lambda: os.path.join(
+    REPO_DIR, "seg_best.pt"
+)
+
+assert os.path.isfile(os.path.join(REPO_DIR, "seg_best.pt"))
+assert os.path.isfile(os.path.join(REPO_DIR, "cls_pred_seg_best.pt"))
+
+# 6. Load GPU models
+print("Loading SegFormer-B5 and ConvNeXt-Base...")
+
+segmenter, classifier = brisc.load_trained_models(
+    mode="pred_seg"
+)
+
+print("Models loaded successfully.")
+print("Device:", brisc.DEVICE)
+
+# 7. Load Flask API
+spec = importlib.util.spec_from_file_location(
+    "neuroscan_api", APP_PATH
+)
+api = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(api)
+
+api.configure_models(segmenter, classifier)
+
+print("Flask API configured.")
+
+# 8. Start Flask server only if not already running
+LOCAL_URL = "http://127.0.0.1:5000"
+
+def local_api_ready():
+    try:
+        r = requests.get(LOCAL_URL + "/health", timeout=3)
+        return r.status_code == 200 and r.json().get("models_loaded")
+    except Exception:
+        return False
+
+if not local_api_ready():
+    server_thread = threading.Thread(
+        target=lambda: api.app.run(
+            host="0.0.0.0",
+            port=5000,
+            debug=False,
+            use_reloader=False
+        ),
+        daemon=True
+    )
+    server_thread.start()
+
+    for _ in range(20):
+        if local_api_ready():
+            break
+        time.sleep(1)
+
+assert local_api_ready(), "Flask API failed to start."
+
+print("Flask API is running.")
+
+# 9. Configure ngrok reserved domain
+PUBLIC_URL = "https://curvy-sheath-consoling.ngrok-free.dev"
+
+token = userdata.get("NGROK_AUTHTOKEN")
+assert token, "NGROK_AUTHTOKEN missing from Colab Secrets."
+
+from pyngrok import conf
+
+NGROK_PATH = conf.get_default().ngrok_path
+NGROK_CONFIG = "/root/.config/ngrok/ngrok.yml"
+
+config_data = {
+    "version": "3",
+    "agent": {
+        "authtoken": token
+    },
+    "endpoints": [
+        {
+            "name": "neuroscan-api",
+            "url": PUBLIC_URL,
+            "upstream": {
+                "url": "http://localhost:5000"
+            }
+        }
+    ]
+}
+
+Path(NGROK_CONFIG).parent.mkdir(parents=True, exist_ok=True)
+
+with open(NGROK_CONFIG, "w") as f:
+    yaml.safe_dump(config_data, f, sort_keys=False)
+
+# 10. Start the configured ngrok endpoint
+# If this cell is rerun, reuse a working public tunnel.
+def public_api_ready():
+    try:
+        r = requests.get(
+            PUBLIC_URL + "/health",
+            headers={"ngrok-skip-browser-warning": "true"},
+            timeout=5
+        )
+        return r.status_code == 200 and r.json().get("models_loaded")
+    except Exception:
+        return False
+
+if not public_api_ready():
+    ngrok_process = subprocess.Popen(
+        [
+            NGROK_PATH,
+            "start",
+            "neuroscan-api",
+            f"--config={NGROK_CONFIG}"
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.STDOUT
+    )
+
+    for _ in range(30):
+        if public_api_ready():
+            break
+        if ngrok_process.poll() is not None:
+            raise RuntimeError(
+                "Ngrok stopped. Check your ngrok configuration."
+            )
+        time.sleep(2)
+
+assert public_api_ready(), "Public API connection failed."
+
+# 11. Final status
+print("\n" + "=" * 45)
+print("       NEUROSCAN AI READY FOR EXPO")
+print("=" * 45)
+print("GPU:", brisc.DEVICE)
+print("Models: Loaded")
+print("Flask API: Running")
+print("Ngrok: Connected")
+print("Public API:", PUBLIC_URL)
+print("Health:", requests.get(
+    PUBLIC_URL + "/health",
+    headers={"ngrok-skip-browser-warning": "true"},
+    timeout=10
+).json())
+print("=" * 45)

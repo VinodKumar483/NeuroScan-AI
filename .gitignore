@@ -1,0 +1,82 @@
+﻿# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# Flutter/Dart
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.dart-tool-local/
+.dart-tool-roaming/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication
+app.*.symbols
+app.*.map.json
+
+# Android build
+/android/app/debug
+/android/app/profile
+/android/app/release
+/android/.gradle/
+/android/captures/
+/android/gradlew
+/android/gradlew.bat
+/android/local.properties
+/android/.cxx/
+
+# Signing keys - NEVER upload
+key.properties
+**/*.keystore
+**/*.jks
+
+# Security
+.env
+.env.*
+!.env.example
+secrets/
+secrets.json
+*credentials*.json
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# AI models
+*.keras
+*.h5
+*.pt
+*.pth
+*.onnx
+
+# Datasets
+datasets/
+dataset/
+
+# Python
+__pycache__/
+.venv/
+venv/
+env/
